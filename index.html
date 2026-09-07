@@ -22,7 +22,7 @@ h1{font-size:clamp(24px,5vw,38px);margin:0 0 6px;letter-spacing:-.04em}
 .controls{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px}
 select,button,input{font:inherit}
 select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);font-weight:700}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
 .stat{background:#f7f9fc;border-radius:12px;padding:10px;text-align:center}
 .stat b{display:block;font-size:20px}
 .stat span{font-size:11px;color:var(--muted)}
@@ -67,7 +67,7 @@ select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;b
   .controls{grid-template-columns:1fr 1fr}
   .controls > :first-child{grid-column:1/-1}
   .options{grid-template-columns:1fr}
-  .stats{grid-template-columns:repeat(4,1fr)}
+  .stats{grid-template-columns:repeat(5,1fr)}
   .stat b{font-size:17px}
   .wrong-row{grid-template-columns:46px 1fr auto}
   .wrong-row .meaning{grid-column:2/4}
@@ -108,6 +108,7 @@ select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;b
       <div class="stat"><b id="now">0</b><span>현재</span></div>
       <div class="stat"><b id="correct">0</b><span>정답</span></div>
       <div class="stat"><b id="wrong">0</b><span>오답</span></div>
+      <div class="stat"><b id="mastered">0</b><span>학습완료</span></div>
       <div class="stat"><b id="rate">0%</b><span>정답률</span></div>
     </div>
     <div class="progress"><i id="bar"></i></div>
@@ -131,12 +132,13 @@ select{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;b
     <div class="actions">
       <button class="secondary" id="restartWrong">오답만 다시 풀기</button>
       <button class="danger" id="clearWrong">오답 초기화</button>
+      <button class="danger" id="clearMastered">학습완료 초기화</button>
     </div>
   </div>
 
   <div class="foot">
     ※ 순위는 특정 시험기관의 공식 출제 빈도 통계가 아니라, 공무원 영어에서 반복적으로 학습되는 핵심 어휘·행정/법률/경제/사회 분야 어휘를 중심으로 중요도를 반영해 배열한 학습용 순서입니다.<br>
-    ※ 오답은 이 브라우저에 저장되어 페이지를 닫았다 열어도 남습니다.
+    ※ 오답과 학습 완료 단어는 이 브라우저에 저장되어 페이지를 닫았다 열어도 남습니다. 맞힌 단어는 이후 일반 테스트에서 자동 제외됩니다.
   </div>
 </div>
 
@@ -156,14 +158,16 @@ const WORDS=[{"rank":1,"word":"abandon","meaning":"버리다, 포기하다"},{"r
 const $=id=>document.getElementById(id);
 let quiz=[], idx=0, score=0, misses=0, answered=false;
 let wrongSet=new Set(JSON.parse(localStorage.getItem('civilVocabWrong')||'[]'));
+let masteredSet=new Set(JSON.parse(localStorage.getItem('civilVocabMastered')||'[]'));
 
 function shuffle(a){a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 function saveWrong(){localStorage.setItem('civilVocabWrong',JSON.stringify([...wrongSet]));renderWrong()}
+function saveMastered(){localStorage.setItem('civilVocabMastered',JSON.stringify([...masteredSet]));}
 function parsePool(){
   const r=$('range').value;
   if(r==='wrong') return WORDS.filter(x=>wrongSet.has(x.word));
   const [a,b]=r.split('-').map(Number);
-  return WORDS.filter(x=>x.rank>=a&&x.rank<=b);
+  return WORDS.filter(x=>x.rank>=a&&x.rank<=b && !masteredSet.has(x.word));
 }
 function startQuiz(){
   let pool=parsePool();
@@ -203,28 +207,29 @@ function choose(btn,meaning){
     if(b.textContent===item.meaning)b.classList.add('correct');
   });
   if(ok){
-    score++; wrongSet.delete(item.word);
+    score++; wrongSet.delete(item.word); masteredSet.add(item.word);
     $('result').className='result show ok';
-    $('result').innerHTML=`<strong>✓ 정답!</strong><span>${item.word} = ${item.meaning}</span>`;
+    $('result').innerHTML=`<strong>✓ 정답! · 학습 완료</strong><span>${item.word} = ${item.meaning}</span>`;
   }else{
-    misses++;wrongSet.add(item.word);btn.classList.add('wrong');
+    misses++;wrongSet.add(item.word); masteredSet.delete(item.word); btn.classList.add('wrong');
     $('result').className='result show bad';
     $('result').innerHTML=`<strong>✕ 오답</strong><span>정답: ${item.meaning}</span>`;
   }
-  saveWrong();$('next').disabled=false;$('dontKnow').disabled=true;updateStats();
+  saveWrong();saveMastered();$('next').disabled=false;$('dontKnow').disabled=true;updateStats();
 }
 function dontKnow(){
   if(answered)return;
-  const item=quiz[idx]; answered=true;misses++;wrongSet.add(item.word);
+  const item=quiz[idx]; answered=true;misses++;wrongSet.add(item.word); masteredSet.delete(item.word);
   [...$('options').children].forEach(b=>{b.disabled=true;if(b.textContent===item.meaning)b.classList.add('correct')});
   $('result').className='result show bad';
   $('result').innerHTML=`<strong>정답 공개</strong><span>${item.word} = ${item.meaning}</span>`;
-  saveWrong();$('next').disabled=false;$('dontKnow').disabled=true;updateStats();
+  saveWrong();saveMastered();$('next').disabled=false;$('dontKnow').disabled=true;updateStats();
 }
 function updateStats(){
   const done=score+misses;
   $('now').textContent=Math.min(idx+1,quiz.length);
   $('correct').textContent=score;$('wrong').textContent=misses;
+  $('mastered').textContent=masteredSet.size;
   $('rate').textContent=done?Math.round(score/done*100)+'%':'0%';
   $('bar').style.width=(quiz.length?Math.min(100,done/quiz.length*100):0)+'%';
 }
@@ -249,6 +254,7 @@ $('next').onclick=next;$('dontKnow').onclick=dontKnow;
 $('range').onchange=startQuiz;$('order').onchange=startQuiz;$('count').onchange=startQuiz;
 $('restartWrong').onclick=()=>{$('range').value='wrong';$('order').value='rank';startQuiz();window.scrollTo({top:0,behavior:'smooth'})};
 $('clearWrong').onclick=()=>{if(confirm('오답노트를 모두 지울까요?')){wrongSet.clear();saveWrong()}};
+$('clearMastered').onclick=()=>{if(confirm('맞힌 단어 기록을 모두 초기화할까요? 다시 전체 단어가 출제됩니다.')){masteredSet.clear();saveMastered();startQuiz()}};
 $('again').onclick=()=>{$('modal').classList.remove('show');startQuiz()};
 renderWrong();startQuiz();
 </script>
